@@ -256,13 +256,15 @@ function encodeArgs(dst: string, scale?: ScaleTarget | null): string[] {
     "-c:v",
     "libx264",
     "-crf",
-    "18",
+    String(DOWNSCALE_CRF),
     "-preset",
     "medium",
     "-pix_fmt",
     "yuv420p",
     "-c:a",
-    "copy",
+    "aac",
+    "-b:a",
+    "192k",
   );
   const ext = path.extname(dst).toLowerCase();
   if (ext === ".mp4" || ext === ".m4v" || ext === ".mov") {
@@ -272,8 +274,9 @@ function encodeArgs(dst: string, scale?: ScaleTarget | null): string[] {
 }
 
 /**
- * Frame-accurate extract. `-c copy` can only cut on keyframes (OBS often uses
- * a 2s GOP), so a 10s selection would export as ~12–14s.
+ * Frame-accurate extract. Stream-copy can only cut on video keyframes
+ * (OBS often uses a 2s GOP) and audio packet boundaries, so a 10s
+ * selection would export as ~12–14s.
  */
 async function extractRange(
   src: string,
@@ -293,6 +296,8 @@ async function extractRange(
       "-t",
       String(duration),
       ...encodeArgs(dst, scale),
+      "-avoid_negative_ts",
+      "make_zero",
       dst,
     ],
     log,
@@ -363,44 +368,6 @@ function resolveDownscale(
   return scale;
 }
 
-async function scaleVideoToFile(
-  src: string,
-  dst: string,
-  scale: ScaleTarget,
-  log?: RunLog,
-): Promise<void> {
-  const vf =
-    `scale=${scale.width}:${scale.height}:flags=lanczos:force_original_aspect_ratio=decrease:force_divisible_by=2,` +
-    `pad=${scale.width}:${scale.height}:(ow-iw)/2:(oh-ih)/2`;
-  const ext = path.extname(dst).toLowerCase();
-  const args = [
-    "-y",
-    "-i",
-    src,
-    "-map",
-    "0:v:0",
-    "-map",
-    "0:a?",
-    "-vf",
-    vf,
-    "-c:v",
-    "libx264",
-    "-crf",
-    String(DOWNSCALE_CRF),
-    "-preset",
-    "medium",
-    "-pix_fmt",
-    "yuv420p",
-    "-c:a",
-    "copy",
-  ];
-  if (ext === ".mp4" || ext === ".m4v" || ext === ".mov") {
-    args.push("-movflags", "+faststart");
-  }
-  args.push(dst);
-  await runFfmpeg(args, log);
-}
-
 export async function cutVideoToFile(
   src: string,
   dst: string,
@@ -431,41 +398,23 @@ export async function cutVideoToFile(
   ensureDir(path.dirname(dst));
 
   const ext = path.extname(src) || ".mp4";
-  const cutDest = scaleTo
-    ? path.join(os.tmpdir(), `easyclip-cut-${crypto.randomUUID()}${ext}`)
-    : dst;
-
-  try {
-    if (normalized.length === 1) {
-      const range = normalized[0]!;
-      await extractRange(src, cutDest, range.start, range.end - range.start, log);
-    } else {
-      const tmp = path.join(os.tmpdir(), `easyclip-cut-${crypto.randomUUID()}`);
-      ensureDir(tmp);
-      try {
-        const parts: string[] = [];
-        for (let i = 0; i < normalized.length; i++) {
-          const range = normalized[i]!;
-          const part = path.join(tmp, `seg-${i}${ext}`);
-          await extractRange(src, part, range.start, range.end - range.start, log);
-          parts.push(part);
-        }
-        await concatSegments(parts, cutDest, log);
-      } finally {
-        fs.rmSync(tmp, { recursive: true, force: true });
+  if (normalized.length === 1) {
+    const range = normalized[0]!;
+    await extractRange(src, dst, range.start, range.end - range.start, log, scaleTo);
+  } else {
+    const tmp = path.join(os.tmpdir(), `easyclip-cut-${crypto.randomUUID()}`);
+    ensureDir(tmp);
+    try {
+      const parts: string[] = [];
+      for (let i = 0; i < normalized.length; i++) {
+        const range = normalized[i]!;
+        const part = path.join(tmp, `seg-${i}${ext}`);
+        await extractRange(src, part, range.start, range.end - range.start, log, scaleTo);
+        parts.push(part);
       }
-    }
-
-    if (scaleTo) {
-      await scaleVideoToFile(cutDest, dst, scaleTo, log);
-    }
-  } finally {
-    if (scaleTo && cutDest !== dst) {
-      try {
-        if (fs.existsSync(cutDest)) fs.unlinkSync(cutDest);
-      } catch {
-        // Temp cleanup is best-effort.
-      }
+      await concatSegments(parts, dst, log);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   }
 
@@ -482,8 +431,12 @@ export async function cutVideoToFile(
   } catch {
     durationSeconds = await getVideoDuration(dst);
   }
+  const expectedSeconds = normalized.reduce(
+    (sum, range) => sum + (range.end - range.start),
+    0,
+  );
   log?.info(`Output file: ${dst} (${fileSize(dst)} bytes)`);
-  log?.info(`Output duration: ${durationSeconds}s`);
+  log?.info(`Output duration: ${durationSeconds}s (expected ${expectedSeconds.toFixed(3)}s)`);
   if (width && height) {
     log?.info(`Output size: ${width}x${height}`);
   }

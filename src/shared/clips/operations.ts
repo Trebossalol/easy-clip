@@ -166,7 +166,7 @@ export async function cutClipToNewFile(
   }
   const dest = uniquePath(dir, stem, ext);
 
-  ignorePathTemporarily(dest, scale ? 15 * 60_000 : 15_000);
+  ignorePathTemporarily(dest, 15 * 60_000);
   try {
     const { durationSeconds } = await cutVideoToFile(clip.filePath, dest, ranges, {
       scale,
@@ -212,8 +212,7 @@ export async function cutClipOverwrite(
     `easyclip-overwrite-${crypto.randomUUID()}${ext}`,
   );
 
-  const ignoreMs = scale ? 15 * 60_000 : 60_000;
-  ignorePathTemporarily(clip.filePath, ignoreMs);
+  ignorePathTemporarily(clip.filePath, 15 * 60_000);
   try {
     const { durationSeconds, width, height, fps } = await cutVideoToFile(
       clip.filePath,

@@ -4,6 +4,7 @@ import { ButtonGroup } from "@/components/ui/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -16,7 +17,6 @@ import { cn } from "@/lib/utils";
 import { MIN_CUT_RANGE_SECONDS } from "@shared/app.config";
 import { type ClipRecord, type CutRange, type ScaleTarget } from "@shared/ipc";
 import {
-  formatBytes,
   formatDuration,
   formatEstimateBytes,
   formatPixels,
@@ -317,6 +317,20 @@ export function ClipCutter({
     });
   }
   const originalBytes = estimateFor();
+  const selectedDownscale = downscales.find(
+    (item) => resolutionKey(item.width, item.height) === activeScaleKey,
+  );
+  const selectedBytes = selectedDownscale
+    ? estimateFor(selectedDownscale.width, selectedDownscale.height)
+    : originalBytes;
+  const scaleButtonLabel =
+    activeScaleKey === ORIGINAL_SCALE
+      ? `Original${
+          sourceSize
+            ? ` · ${formatResolution(sourceSize.width, sourceSize.height)}`
+            : ""
+        }`
+      : (selectedDownscale?.label ?? "Auflösung");
   const canSave =
     !busy &&
     duration > 0 &&
@@ -780,15 +794,7 @@ export function ClipCutter({
                 title="Ausgabeauflösung. Nur Verkleinern, kein Hochskalieren."
               >
                 <MonitorIcon data-icon="inline-start" />
-                {activeScaleKey === ORIGINAL_SCALE
-                  ? `Original${sourceSize
-                    ? ` · ${formatResolution(sourceSize.width, sourceSize.height)}`
-                    : ""
-                  }`
-                  : (downscales.find(
-                    (item) =>
-                      resolutionKey(item.width, item.height) === activeScaleKey,
-                  )?.label ?? "Auflösung")}
+                {scaleButtonLabel}
                 <ChevronDownIcon data-icon="inline-end" />
               </Button>
             </DropdownMenuTrigger>
@@ -836,34 +842,21 @@ export function ClipCutter({
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          {activeScaleKey !== ORIGINAL_SCALE ? (
-            <p className="text-xs text-muted-foreground">
-              Die Datei wird herunterskaliert.
-            </p>
+          {selectedBytes != null && selectedBytes > 0 ? (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {formatEstimateBytes(selectedBytes)}
+              {activeScaleKey !== ORIGINAL_SCALE ? " · skaliert" : ""}
+            </span>
+          ) : activeScaleKey !== ORIGINAL_SCALE ? (
+            <span className="text-xs text-muted-foreground">skaliert</span>
           ) : null}
         </div>
         <ButtonGroup aria-label="Clip speichern">
-          <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
-            Abbrechen
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!canExportGif}
-            title="GIF aus den Behalten-Bereichen (max. 12s, 480p)"
-            onClick={exportGif}
-          >
-            {busy && saveMode === "gif" ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <ImageIcon data-icon="inline-start" />
-            )}
-            Als GIF exportieren
-          </Button>
           <Button
             type="button"
             variant="outline"
             disabled={!canSave}
+            title="Die Originaldatei ersetzen"
             onClick={() => save(true)}
           >
             {busy && saveMode === "overwrite" ? (
@@ -871,16 +864,48 @@ export function ClipCutter({
             ) : (
               <SaveIcon data-icon="inline-start" />
             )}
-            Original überschreiben
+            Überschreiben
           </Button>
-          <Button type="button" disabled={!canSave} onClick={() => save(false)}>
+          <Button
+            type="button"
+            disabled={!canSave}
+            title="Als neuen Clip in der Bibliothek speichern"
+            onClick={() => save(false)}
+          >
             {busy && saveMode === "new" ? (
               <Spinner data-icon="inline-start" />
             ) : (
               <ScissorsIcon data-icon="inline-start" />
             )}
-            Als neuen Clip speichern
+            Neuer Clip
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                disabled={!canExportGif}
+                title="Weitere Exportoptionen"
+                aria-label="Weitere Exportoptionen"
+              >
+                {busy && saveMode === "gif" ? (
+                  <Spinner />
+                ) : (
+                  <ChevronDownIcon />
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                disabled={!canExportGif}
+                onSelect={exportGif}
+              >
+                <ImageIcon />
+                Als GIF exportieren
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </ButtonGroup>
       </div>
     </div>
