@@ -24,5 +24,5 @@ export {
 } from "./replay.js";
 export { applyClipScene, fetchObsScenes, prepareObsClipScene } from "./scenes.js";
 export { getObsSocket, obsState } from "./state.js";
-export { currentObsStatus } from "./status.js";
+export { currentObsStatus, refreshRecordDirectory, sendObsStatus } from "./status.js";
 export { stopObsClipMode } from "./stop.js";

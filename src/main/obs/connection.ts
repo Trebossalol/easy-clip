@@ -9,7 +9,7 @@ import {
   refreshReplayMaxSeconds,
 } from "./replay.js";
 import { refreshProgramScene } from "./scenes.js";
-import { sendObsStatus } from "./status.js";
+import { sendObsStatus, refreshRecordDirectory } from "./status.js";
 import { obsState } from "./state.js";
 
 export async function waitForObsConnected(timeoutMs = 30_000): Promise<boolean> {
@@ -58,6 +58,7 @@ function attachObsSocketListeners(socket: OBSWebSocket): void {
     obsState.replayBufferActive = false;
     obsState.replayMaxSeconds = null;
     obsState.currentProgramScene = null;
+    obsState.recordDirectory = null;
     sendObsStatus();
     void refreshObsProcessRunning();
     if (!obsState.intentionalDisconnect) scheduleReconnect();
@@ -74,9 +75,11 @@ function attachObsSocketListeners(socket: OBSWebSocket): void {
   });
   socket.on("CurrentProfileChanged", () => {
     if (socket !== obsState.socket) return;
-    void refreshReplayMaxSeconds().then((changed) => {
-      if (changed) sendObsStatus();
-    });
+    void Promise.all([refreshReplayMaxSeconds(), refreshRecordDirectory()]).then(
+      ([maxChanged, dirChanged]) => {
+        if (maxChanged || dirChanged) sendObsStatus();
+      },
+    );
   });
   socket.on("ConnectionError", (err) => {
     if (socket !== obsState.socket || obsState.connecting) return;
@@ -85,6 +88,7 @@ function attachObsSocketListeners(socket: OBSWebSocket): void {
     obsState.replayBufferActive = false;
     obsState.replayMaxSeconds = null;
     obsState.currentProgramScene = null;
+    obsState.recordDirectory = null;
     sendObsStatus();
   });
 }
@@ -168,6 +172,7 @@ export async function connectObs(): Promise<void> {
         await refreshReplayMaxSeconds();
         await applyConfiguredReplayMaxSeconds();
         await refreshProgramScene();
+        await refreshRecordDirectory();
         sendObsStatus();
         return;
       } catch (err) {

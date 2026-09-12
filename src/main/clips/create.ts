@@ -22,7 +22,7 @@ let clipping = false;
 
 export async function runCreateClip(
   seconds: number,
-  options?: { log?: boolean; title?: string },
+  options?: { log?: boolean; title?: string; tagIds?: string[] },
 ): Promise<CreateClipResult> {
   const tooShort = validateClipSeconds(seconds);
   if (tooShort) return { ok: false, error: tooShort };
@@ -66,7 +66,11 @@ export async function runCreateClip(
     await importClipFromFile(
       { appDataDir, outputDir: config.CLIP_OUTPUT_DIR },
       result.outputPath,
-      { durationSeconds: result.durationSeconds, name: options?.title },
+      {
+        durationSeconds: result.durationSeconds,
+        name: options?.title,
+        tagIds: options?.tagIds,
+      },
     );
     sendClipsChanged();
     log?.info(`Done: ${result.outputPath}`);

@@ -48,6 +48,7 @@ function CutterTab({
   error,
   onClose,
   onSave,
+  onExportGif,
 }: {
   clipId: string;
   clip: ClipRecord | undefined;
@@ -61,6 +62,7 @@ function CutterTab({
     scale?: ScaleTarget | null,
     name?: string | null,
   ) => void;
+  onExportGif: (ranges: CutRange[]) => void;
 }) {
   const loader = useTopLoader();
   const [fetched, setFetched] = useState<ClipRecord | null>(null);
@@ -130,6 +132,7 @@ function CutterTab({
       error={error}
       onCancel={onClose}
       onSave={onSave}
+      onExportGif={onExportGif}
     />
   );
 }
@@ -280,6 +283,29 @@ export function CutterWindow() {
     }
   }
 
+  async function exportGif(clipId: string, ranges: CutRange[]): Promise<void> {
+    setBusyId(clipId);
+    setCutErrors((prev) => {
+      if (!(clipId in prev)) return prev;
+      const next = { ...prev };
+      delete next[clipId];
+      return next;
+    });
+    try {
+      const result = await loader.wrap(() =>
+        window.api.exportGif(clipId, ranges),
+      );
+      if (!result.ok) {
+        setCutErrors((prev) => ({ ...prev, [clipId]: result.error }));
+        toast.error(result.error);
+        return;
+      }
+      toast.success("GIF exportiert.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="app-mesh flex h-full min-h-0 flex-col overflow-hidden">
       {tabIds.length === 0 ? (
@@ -374,6 +400,7 @@ export function CutterWindow() {
                 onSave={(ranges, overwrite, scale, name) =>
                   void saveCut(id, ranges, overwrite, scale, name)
                 }
+                onExportGif={(ranges) => void exportGif(id, ranges)}
               />
             </TabsContent>
           ))}

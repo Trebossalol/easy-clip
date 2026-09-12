@@ -1,3 +1,5 @@
+import { DOWNSCALE_CRF } from "@shared/app.config";
+
 export interface NamedResolution {
   width: number;
   height: number;
@@ -66,8 +68,17 @@ export function downscaleResolutions(
   );
 }
 
-/** ~192 kbit/s AAC; used to keep audio from shrinking with the video. */
+/** ~192 kbit/s AAC; used when the source audio share is unknown. */
 const AUDIO_BYTES_PER_SEC = 24_000;
+
+/** OBS clips are usually 60 fps when the file does not report a rate. */
+const DEFAULT_FPS = 60;
+
+/**
+ * Typical bits/pixel/frame for game/screen content at x264 CRF 18 medium.
+ * CRF size follows quality × pixels × fps, not the source bitrate.
+ */
+const CRF18_BITS_PER_PIXEL = 0.18;
 
 function fittedPixelCount(
   sourceWidth: number,
@@ -81,7 +92,34 @@ function fittedPixelCount(
   return width * height;
 }
 
-/** Rough output size from keep-length and pixel area. Stream-copy for original. */
+function crfBitsPerPixel(crf: number): number {
+  return CRF18_BITS_PER_PIXEL * 2 ** ((18 - crf) / 6);
+}
+
+function estimateCopiedAudioBytes(
+  fileSizeBytes: number | null | undefined,
+  sourceDuration: number,
+  keepDuration: number,
+): number {
+  const keepRatio = Math.min(1, keepDuration / sourceDuration);
+  if (fileSizeBytes != null && fileSizeBytes > 0) {
+    const sourceAudio = Math.min(
+      fileSizeBytes * 0.12,
+      AUDIO_BYTES_PER_SEC * sourceDuration,
+    );
+    return sourceAudio * keepRatio;
+  }
+  return AUDIO_BYTES_PER_SEC * keepDuration;
+}
+
+function sanitizeFps(value: number | null | undefined): number {
+  if (value == null || !Number.isFinite(value) || value < 1 || value > 240) {
+    return DEFAULT_FPS;
+  }
+  return value;
+}
+
+/** Stream-copy for original. Downscale uses the cutter's x264 CRF encode. */
 export function estimateOutputBytes(options: {
   fileSizeBytes: number | null | undefined;
   sourceDuration: number;
@@ -90,6 +128,7 @@ export function estimateOutputBytes(options: {
   sourceHeight: number;
   targetWidth?: number | null;
   targetHeight?: number | null;
+  fps?: number | null;
 }): number | null {
   const {
     fileSizeBytes,
@@ -99,10 +138,9 @@ export function estimateOutputBytes(options: {
     sourceHeight,
     targetWidth,
     targetHeight,
+    fps,
   } = options;
   if (
-    fileSizeBytes == null ||
-    fileSizeBytes <= 0 ||
     sourceDuration <= 0 ||
     keepDuration <= 0 ||
     sourceWidth <= 0 ||
@@ -116,25 +154,24 @@ export function estimateOutputBytes(options: {
     targetHeight == null ||
     (targetWidth === sourceWidth && targetHeight === sourceHeight);
   if (original) {
+    if (fileSizeBytes == null || fileSizeBytes <= 0) return null;
     return Math.max(1, Math.round(fileSizeBytes * keepRatio));
   }
-  const sourcePixels = sourceWidth * sourceHeight;
   const targetPixels = fittedPixelCount(
     sourceWidth,
     sourceHeight,
     targetWidth,
     targetHeight,
   );
-  const pixelRatio = Math.min(1, targetPixels / sourcePixels);
-  const sourceAudio = Math.min(
-    fileSizeBytes * 0.12,
-    AUDIO_BYTES_PER_SEC * sourceDuration,
+  const videoBytes =
+    (targetPixels * sanitizeFps(fps) * keepDuration * crfBitsPerPixel(DOWNSCALE_CRF)) /
+    8;
+  const audioBytes = estimateCopiedAudioBytes(
+    fileSizeBytes,
+    sourceDuration,
+    keepDuration,
   );
-  const sourceVideo = Math.max(0, fileSizeBytes - sourceAudio);
-  return Math.max(
-    1,
-    Math.round(sourceAudio * keepRatio + sourceVideo * keepRatio * pixelRatio),
-  );
+  return Math.max(1, Math.round(videoBytes + audioBytes));
 }
 
 export function formatEstimateBytes(bytes: number): string {

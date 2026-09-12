@@ -7,7 +7,7 @@ import { loadRenderer, windowPrefs } from "./load.js";
 import { getQuickActionWindow, setQuickActionWindow } from "./state.js";
 
 const QUICK_ACTION_WIDTH = 360;
-const QUICK_ACTION_HEIGHT = 480;
+const QUICK_ACTION_HEIGHT = 560;
 
 let ignoreQuickActionBlur = false;
 

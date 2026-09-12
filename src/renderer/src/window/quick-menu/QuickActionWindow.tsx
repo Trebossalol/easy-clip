@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -21,18 +29,26 @@ import {
 import {
   InputGroup,
   InputGroupAddon,
+  InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import type { AppConfigDto, ClipPreset, ObsStatus } from "@shared/ipc";
+import type { AppConfigDto, ClipPreset, ObsStatus, TagRecord } from "@shared/ipc";
+import {
+  MAX_TAG_NAME_LENGTH,
+  normalizeTagName,
+} from "@shared/tags/names";
 import { formatDuration } from "@/format";
 import {
   ClockIcon,
+  PlusIcon,
+  TagsIcon,
   TriangleAlertIcon,
   TypeIcon,
   UnplugIcon,
 } from "lucide-react";
 import { getClipAvailability } from "@/components/ClipActions";
 import logoUrl from "@ressources/logo.svg";
+import { cn } from "@/lib/utils";
 
 export function isQuickActionRoute(): boolean {
   return window.location.hash.replace(/^#/, "") === "quick";
@@ -45,21 +61,29 @@ function presetValue(preset: ClipPreset): string {
 export function QuickActionWindow() {
   const [config, setConfig] = useState<AppConfigDto | null>(null);
   const [obsStatus, setObsStatus] = useState<ObsStatus | null>(null);
+  const [tags, setTags] = useState<TagRecord[]>([]);
   const [title, setTitle] = useState("");
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState("");
+  const [tagBusy, setTagBusy] = useState(false);
   const [selected, setSelected] = useState("");
   const titleRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
-    const [nextConfig, nextStatus] = await Promise.all([
+    const [nextConfig, nextStatus, nextTags] = await Promise.all([
       window.api.getConfig(),
       window.api.getObsStatus(),
+      window.api.listTags(),
     ]);
     setConfig(nextConfig);
     setObsStatus(nextStatus);
+    setTags(nextTags);
   }, []);
 
-  const focusTitle = useCallback(() => {
+  const resetForm = useCallback(() => {
     setTitle("");
+    setSelectedTagIds([]);
+    setTagDraft("");
     requestAnimationFrame(() => {
       titleRef.current?.focus();
       titleRef.current?.select();
@@ -75,18 +99,19 @@ export function QuickActionWindow() {
 
   useEffect(() => {
     void reload();
-    focusTitle();
+    resetForm();
     const unsubs = [
       window.api.onObsStatus(setObsStatus),
+      window.api.onTagsChanged(setTags),
       window.api.onQuickActionOpened(() => {
         void reload();
-        focusTitle();
+        resetForm();
       }),
     ];
     return () => {
       for (const unsub of unsubs) unsub();
     };
-  }, [focusTitle, reload]);
+  }, [reload, resetForm]);
 
   const presets = config?.CLIP_PRESETS ?? [];
   const { connected, replayOff, sceneMismatch, canClip } = getClipAvailability(
@@ -117,9 +142,13 @@ export function QuickActionWindow() {
   const selectPreset = useCallback(
     (seconds: number) => {
       const name = title.trim();
-      void window.api.selectQuickAction(seconds, name || undefined);
+      void window.api.selectQuickAction(
+        seconds,
+        name || undefined,
+        selectedTagIds.length > 0 ? selectedTagIds : undefined,
+      );
     },
-    [title],
+    [selectedTagIds, title],
   );
 
   const saveSelected = useCallback((): void => {
@@ -152,6 +181,8 @@ export function QuickActionWindow() {
         return;
       }
       if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea")) return;
       const index = Number(event.key) - 1;
       if (!Number.isInteger(index) || index < 0 || index >= presets.length) {
         return;
@@ -180,6 +211,40 @@ export function QuickActionWindow() {
     if (event.key === "ArrowUp") {
       event.preventDefault();
       moveSelection(-1);
+    }
+  }
+
+  function toggleTag(tagId: string): void {
+    setSelectedTagIds((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
+    );
+  }
+
+  async function createTag(e: FormEvent): Promise<void> {
+    e.preventDefault();
+    const name = normalizeTagName(tagDraft);
+    if (!name || tagBusy) return;
+
+    const existing = tags.find(
+      (tag) => tag.name.toLowerCase() === name.toLowerCase(),
+    );
+    setTagBusy(true);
+    try {
+      if (existing) {
+        if (!selectedTagIds.includes(existing.id)) {
+          setSelectedTagIds((prev) => [...prev, existing.id]);
+        }
+        setTagDraft("");
+        return;
+      }
+      const result = await window.api.createTag(name);
+      if (!result.ok) return;
+      setTagDraft("");
+      setSelectedTagIds((prev) =>
+        prev.includes(result.tag.id) ? prev : [...prev, result.tag.id],
+      );
+    } finally {
+      setTagBusy(false);
     }
   }
 
@@ -237,6 +302,62 @@ export function QuickActionWindow() {
                     onKeyDown={onTitleKeyDown}
                   />
                 </InputGroup>
+              </Field>
+              <Field>
+                <FieldLabel className="sr-only">Tags</FieldLabel>
+                {tags.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {tags.map((tag) => {
+                      const active = selectedTagIds.includes(tag.id);
+                      return (
+                        <Badge
+                          key={tag.id}
+                          variant={active ? "default" : "outline"}
+                          className={cn(
+                            "cursor-pointer select-none",
+                            active && "bg-primary text-primary-foreground",
+                          )}
+                          onClick={() => toggleTag(tag.id)}
+                        >
+                          <TagsIcon
+                            data-icon="inline-start"
+                            className="opacity-70"
+                          />
+                          {tag.name}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <form
+                  className="flex items-center gap-1"
+                  onSubmit={(e) => void createTag(e)}
+                >
+                  <InputGroup className="flex-1">
+                    <InputGroupAddon>
+                      <TagsIcon className="opacity-70" />
+                    </InputGroupAddon>
+                    <InputGroupInput
+                      type="text"
+                      autoComplete="off"
+                      maxLength={MAX_TAG_NAME_LENGTH}
+                      placeholder="Neues Tag…"
+                      value={tagDraft}
+                      disabled={tagBusy}
+                      onChange={(e) => setTagDraft(e.target.value)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
+                    <InputGroupButton
+                      type="submit"
+                      size="icon-xs"
+                      variant="secondary"
+                      disabled={tagBusy || !normalizeTagName(tagDraft)}
+                      aria-label="Tag anlegen und zuweisen"
+                    >
+                      <PlusIcon />
+                    </InputGroupButton>
+                  </InputGroup>
+                </form>
               </Field>
             </FieldGroup>
           </div>

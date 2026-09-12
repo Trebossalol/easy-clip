@@ -25,6 +25,9 @@ export interface SettingsFormValue {
   outputDir: string;
   onOutputDirChange: (value: string) => void;
   onBrowseOutputDir: () => void;
+  obsRecordDirectory: string | null;
+  outputDirMismatch: boolean;
+  onAdoptObsOutputDir: () => Promise<void>;
 
   // Presets
   clipPresets: PresetDraft[];

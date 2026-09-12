@@ -24,6 +24,7 @@ import { setAppAutostartEnabled, shouldRunAutostart } from "./autostart.js";
 import {
   runCreateClip,
   runCutClip,
+  runExportGif,
   sendClipsChanged,
   sendLibraryChanged,
   startFolderWatcher,
@@ -42,6 +43,7 @@ import {
   prepareObsClipScene,
   startObsClipMode,
   stopObsClipMode,
+  sendObsStatus,
 } from "./obs/index.js";
 import { getAppDataDir, getConfig, persistConfig } from "./session.js";
 import { checkForAppUpdate } from "./updates.js";
@@ -110,6 +112,7 @@ export function registerIpc(): void {
         });
         sendClipsChanged();
       }
+      sendObsStatus();
 
       return { ...config };
     },
@@ -157,11 +160,14 @@ export function registerIpc(): void {
 
   ipcMain.handle(
     IpcChannels.selectQuickAction,
-    (_event, seconds: number, title?: unknown): void => {
+    (_event, seconds: number, title?: unknown, tagIds?: unknown): void => {
       hideQuickActionWindow();
       const name =
         typeof title === "string" && title.trim() ? title.trim() : undefined;
-      void handlePresetHotkey(seconds, name);
+      const tags = Array.isArray(tagIds)
+        ? tagIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+        : undefined;
+      void handlePresetHotkey(seconds, name, tags);
     },
   );
 
@@ -232,7 +238,9 @@ export function registerIpc(): void {
   });
 
   ipcMain.handle(IpcChannels.deleteClip, async (_event, id: string) => {
-    const result = deleteClip(getAppDataDir(), id);
+    const result = await deleteClip(getAppDataDir(), id, (filePath) =>
+      shell.trashItem(filePath),
+    );
     if (result.ok) {
       sendClipsChanged();
     }
@@ -249,6 +257,11 @@ export function registerIpc(): void {
       scale?: ScaleTarget | null,
       name?: string | null,
     ) => runCutClip(id, ranges, overwrite, scale, name),
+  );
+
+  ipcMain.handle(
+    IpcChannels.exportGif,
+    (_event, id: string, ranges: CutRange[]) => runExportGif(id, ranges),
   );
 
   ipcMain.handle(IpcChannels.getStorage, async () => {

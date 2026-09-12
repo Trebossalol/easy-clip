@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -17,16 +20,37 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { FolderIcon, FolderOutputIcon } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  FolderIcon,
+  FolderOutputIcon,
+  FolderSyncIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import { StoragePanel } from "./StoragePanel";
 import { useSettingsForm } from "@/context/settings-form-context";
+import { APP_NAME } from "@shared/app.config";
 
 export function StorageSection() {
   const {
     outputDir,
     onOutputDirChange,
     onBrowseOutputDir,
+    obsRecordDirectory,
+    outputDirMismatch,
+    onAdoptObsOutputDir,
   } = useSettingsForm();
+  const [adopting, setAdopting] = useState(false);
+
+  async function adopt(): Promise<void> {
+    if (adopting) return;
+    setAdopting(true);
+    try {
+      await onAdoptObsOutputDir();
+    } finally {
+      setAdopting(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -41,6 +65,33 @@ export function StorageSection() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {outputDirMismatch ? (
+            <Alert variant="warning">
+              <TriangleAlertIcon />
+              <AlertTitle>Unterschiedliche Clip-Ordner</AlertTitle>
+              <AlertDescription className="flex flex-col gap-2">
+                <span>
+                  OBS speichert unter „{obsRecordDirectory}“, {APP_NAME} nutzt
+                  „{outputDir}“.
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="w-fit"
+                  disabled={adopting}
+                  onClick={() => void adopt()}
+                >
+                  {adopting ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <FolderSyncIcon data-icon="inline-start" />
+                  )}
+                  Clip-Ordner an OBS anpassen
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="clip-output-dir">

@@ -8,6 +8,7 @@ export const obsState = {
   replayBufferActive: null as boolean | null,
   replayMaxSeconds: null as number | null,
   currentProgramScene: null as string | null,
+  recordDirectory: null as string | null,
   reconnectTimer: null as NodeJS.Timeout | null,
   reconnectAttempt: 0,
   intentionalDisconnect: false,

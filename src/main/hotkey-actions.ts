@@ -1,11 +1,10 @@
-import { Notification } from "electron";
-import { APP_NAME } from "../shared/app.config.js";
 import { IpcChannels, type HotkeyClipPayload } from "../shared/ipc.js";
 import { runCreateClip } from "./clips/create.js";
 import { registerAppHotkeys } from "./hotkeys.js";
 import { getConfig } from "./session.js";
 import {
   sendToMainWindow,
+  showClipConfirmOverlay,
   toggleQuickActionWindow,
   windowCanShowToast,
 } from "./windows/index.js";
@@ -31,15 +30,16 @@ export function syncPresetHotkeys(notify: boolean): string[] {
 export async function handlePresetHotkey(
   seconds: number,
   title?: string,
+  tagIds?: string[],
 ): Promise<void> {
-  const result = await runCreateClip(seconds, { log: true, title });
-  const payload: HotkeyClipPayload = { seconds, result, title };
+  const result = await runCreateClip(seconds, { log: true, title, tagIds });
+  const payload: HotkeyClipPayload = { seconds, result, title, tagIds };
   sendToMainWindow(IpcChannels.hotkeyClip, payload);
   if (windowCanShowToast()) return;
-  const body = result.ok
-    ? title
-      ? `„${title}“ gespeichert (${seconds}s)`
-      : `Clip gespeichert (${seconds}s)`
-    : result.error;
-  new Notification({ title: APP_NAME, body }).show();
+  showClipConfirmOverlay({
+    ok: result.ok,
+    seconds,
+    title,
+    error: result.ok ? undefined : result.error,
+  });
 }

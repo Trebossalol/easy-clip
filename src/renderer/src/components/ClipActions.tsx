@@ -1,12 +1,15 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { formatDuration } from "@/format";
 import { APP_NAME } from "@shared/app.config";
 import type { ObsStatus } from "@shared/ipc";
 import {
   AlertCircleIcon,
+  FolderSyncIcon,
   TriangleAlertIcon,
 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 export function clipPresetsFromSeconds(values: number[]): Array<{
@@ -73,6 +76,7 @@ interface ClipActionsProps {
   obsStatus: ObsStatus | null;
   clipScene?: string | null;
   message: { text: string; kind: "ok" | "err" } | null;
+  onAdoptObsOutputDir?: () => Promise<void>;
 }
 
 export function ClipActions({
@@ -80,12 +84,25 @@ export function ClipActions({
   obsStatus,
   clipScene,
   message,
+  onAdoptObsOutputDir,
 }: ClipActionsProps) {
   const { replayOff, sceneMismatch } = getClipAvailability(
     obsStatus,
     busy,
     clipScene,
   );
+  const [adopting, setAdopting] = useState(false);
+  const folderMismatch = obsStatus?.outputDirMismatch === true;
+
+  async function adoptFolder(): Promise<void> {
+    if (!onAdoptObsOutputDir || adopting) return;
+    setAdopting(true);
+    try {
+      await onAdoptObsOutputDir();
+    } finally {
+      setAdopting(false);
+    }
+  }
 
   if (busy) {
     return (
@@ -118,6 +135,38 @@ export function ClipActions({
         <AlertDescription>
           Clips nutzen „{wanted}“, OBS ist auf „{current}“. Starte OBS über{" "}
           {APP_NAME}, damit der Puffer die richtige Szene aufzeichnet.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  if (folderMismatch) {
+    return (
+      <Alert variant="warning" className="items-start py-2">
+        <TriangleAlertIcon />
+        <AlertTitle>Unterschiedliche Clip-Ordner</AlertTitle>
+        <AlertDescription className="flex flex-col gap-2">
+          <span>
+            OBS speichert unter „{obsStatus?.recordDirectory}“, {APP_NAME} nutzt
+            einen anderen Ausgabeordner. Clips landen sonst am falschen Ort.
+          </span>
+          {onAdoptObsOutputDir ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="w-fit"
+              disabled={adopting}
+              onClick={() => void adoptFolder()}
+            >
+              {adopting ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <FolderSyncIcon data-icon="inline-start" />
+              )}
+              Clip-Ordner an OBS anpassen
+            </Button>
+          ) : null}
         </AlertDescription>
       </Alert>
     );

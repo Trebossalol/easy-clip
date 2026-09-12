@@ -1,4 +1,5 @@
 import type { OBSWebSocket } from "obs-websocket-js";
+import path from "node:path";
 import {
   MAX_OBS_REPLAY_SECONDS,
   MIN_OBS_REPLAY_SECONDS,
@@ -115,4 +116,58 @@ export async function setObsProgramScene(
   sceneName: string,
 ): Promise<void> {
   await obs.call("SetCurrentProgramScene", { sceneName });
+}
+
+/** Normalize paths for folder equality checks (Windows-friendly). */
+export function normalizeDirPath(value: string): string {
+  const trimmed = value.trim().replace(/[/\\]+$/, "");
+  if (!trimmed) return "";
+  try {
+    return path.resolve(trimmed).replace(/[/\\]+$/, "").toLowerCase();
+  } catch {
+    return trimmed.toLowerCase();
+  }
+}
+
+export function pathsEqual(a: string, b: string): boolean {
+  const left = normalizeDirPath(a);
+  const right = normalizeDirPath(b);
+  return Boolean(left && right && left === right);
+}
+
+/**
+ * OBS recording / replay output directory.
+ * Prefers `GetRecordDirectory` (OBS 28+), then profile RecFilePath / FilePath.
+ */
+export async function getObsRecordDirectory(
+  obs: OBSWebSocket,
+): Promise<string | null> {
+  try {
+    const res = await obs.call("GetRecordDirectory");
+    const dir = res.recordDirectory?.trim();
+    if (dir) return dir;
+  } catch {
+    // Older builds or restricted profiles — fall through.
+  }
+
+  try {
+    const category = await obsReplayBufferCategory(obs);
+    const fileParam = category === "AdvOut" ? "RecFilePath" : "FilePath";
+    const fileRes = await obs.call("GetProfileParameter", {
+      parameterCategory: category,
+      parameterName: fileParam,
+    });
+    const raw =
+      fileRes.parameterValue?.trim() ||
+      fileRes.defaultParameterValue?.trim() ||
+      "";
+    if (!raw) return null;
+    // Simple output may store a filename template with path; take the directory.
+    if (/\.(mp4|mkv|mov|flv|ts|m3u8)$/i.test(raw) || /%/.test(raw)) {
+      return path.dirname(raw);
+    }
+    return raw;
+  } catch {
+    return null;
+  }
 }

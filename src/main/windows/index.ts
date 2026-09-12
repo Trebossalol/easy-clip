@@ -1,5 +1,5 @@
 /**
- * BrowserWindow helpers: main library, cutter, and the quick-action overlay.
+ * BrowserWindow helpers: main library, cutter, quick-action, and confirm overlay.
  */
 export {
   sendToMainWindow,
@@ -12,4 +12,8 @@ export {
   hideQuickActionWindow,
   toggleQuickActionWindow,
 } from "./quick-action.js";
+export {
+  closeConfirmWindow,
+  showClipConfirmOverlay,
+} from "./confirm.js";
 export { getMainWindow } from "./state.js";

@@ -54,7 +54,7 @@ export function DeleteClipDialog({
             >
               {clip.missing
                 ? `„${clip.name}“ wird aus der Bibliothek entfernt. Die Datei ist bereits nicht mehr vorhanden.`
-                : `„${clip.name}“ wird unwiderruflich gelöscht, inklusive der Datei auf dem Datenträger.`}
+                : `„${clip.name}“ wird aus der Bibliothek entfernt und die Datei in den Papierkorb verschoben.`}
             </p>
           </div>
         </div>

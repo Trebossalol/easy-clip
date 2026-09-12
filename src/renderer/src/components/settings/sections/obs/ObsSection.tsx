@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Accordion,
   AccordionContent,
@@ -69,6 +69,9 @@ export function ObsSection() {
     onObsReplayMinutesChange,
     onObsReplaySecondsChange,
     onTogglePassword,
+    outputDirMismatch,
+    obsRecordDirectory,
+    onAdoptObsOutputDir,
   } = useSettingsForm();
 
   const [scenes, setScenes] = useState<string[]>([]);
@@ -109,6 +112,28 @@ export function ObsSection() {
 
   return (
     <div className="flex flex-col gap-4">
+      {outputDirMismatch ? (
+        <Alert variant="warning">
+          <TriangleAlertIcon />
+          <AlertTitle>Unterschiedliche Clip-Ordner</AlertTitle>
+          <AlertDescription className="flex flex-col gap-2">
+            <span>
+              OBS speichert unter „{obsRecordDirectory}“. Passe den Easy-Clip-
+              Ausgabeordner unter Speicher an, oder übernimm den OBS-Pfad.
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="w-fit"
+              onClick={() => void onAdoptObsOutputDir()}
+            >
+              <FolderIcon data-icon="inline-start" />
+              Clip-Ordner an OBS anpassen
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <Accordion
         type="single"
         collapsible

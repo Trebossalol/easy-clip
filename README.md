@@ -115,8 +115,11 @@ Das ist das kleine Overlay, das über deinem Spiel erscheint.
 Wenn du diese Verknüpfung drückst:
 
 - Tippe optional einen Titel.
+- Wähle optional Tags (oder lege ein neues an).
 - Wähle eine Länge mit der Maus, den Pfeiltasten oder **1–6**.
 - **Enter** speichert die markierte Länge. **Esc** oder ein Klick außerhalb schließt das Menü.
+
+Wenn Easy Clip im Hintergrund läuft (Spiel im Vordergrund), erscheint kurz eine Bestätigung über dem Spiel — ohne den Fokus zu stehlen.
 
 ### Direkter Hotkey pro Länge
 
@@ -136,8 +139,9 @@ Wenn Windows sagt, dass eine Verknüpfung bereits vergeben ist, wähle eine ande
 
 - Miniaturansichten; klicke auf einen Clip, um ihn abzuspielen
 - Bearbeite den Titel, um die Datei auf der Festplatte umzubenennen
+- Suche nach Titel oder Tag
 - Filtere nach **alle**, **ohne Titel** oder **letzte 24 Stunden**
-- Im Explorer anzeigen, den Cutter öffnen oder löschen (löscht die Datei)
+- Im Explorer anzeigen, den Cutter öffnen oder löschen (verschiebt die Datei in den Papierkorb)
 
 Neue Videodateien, die im Ausgabeordner landen (`mp4`, `mkv`, `mov`, `webm`, `m4v`), werden automatisch importiert und nach `YYYY\MM` verschoben, falls sie noch nicht dort liegen.
 
@@ -155,6 +159,7 @@ Neue Videodateien, die im Ausgabeordner landen (`mp4`, `mkv`, `mov`, `webm`, `m4
 
 - Clip schneiden (Szenen entfernen)
 - Clip Auflösung downscalen
+- **Als GIF exportieren** speichert ein GIF (max. 12s, 480p) neben dem Clip
 - **Als neuen Clip speichern** schreibt eine neue Datei und lässt das Original unangetastet
 - **Original überschreiben** ersetzt das Original
 
@@ -182,7 +187,7 @@ Neue Videodateien, die im Ausgabeordner landen (`mp4`, `mkv`, `mov`, `webm`, `m4
 | „Falsche OBS-Szene“ | Starte OBS aus Easy Clip, damit zur Clip-Szene gewechselt wird, oder leere die Szeneneinstellung. |
 | Schnellmenü / Hotkey tut nichts | Easy Clip muss laufen (Infobereich reicht). Die Verknüpfung braucht Strg, Alt oder Windows plus eine Taste und darf nicht schon von Windows oder einer anderen App belegt sein. |
 | OBS startet nicht aus der App | Easy Clip sucht `obs64.exe` unter `C:\Program Files\obs-studio\…`. Liegt deine Installation woanders, setze **OBS-Programmdatei** unter **Einstellungen → OBS**. |
-| Clips landen am falschen Ort | Der Ausgabeordner von Easy Clip und der Aufnahmepfad von OBS müssen identisch sein. |
+| Clips landen am falschen Ort | Der Ausgabeordner von Easy Clip und der Aufnahmepfad von OBS müssen identisch sein. Easy Clip warnt bei Abweichung und bietet **Clip-Ordner an OBS anpassen**. |
 
 Protokolle (falls du sie brauchst): `%APPDATA%\EasyClip\logs`.
 

@@ -89,10 +89,11 @@ export function setClipTags(
   return { ok: true, clip: live ?? { ...clip, tagIds: clip.tagIds } };
 }
 
-export function deleteClip(
+export async function deleteClip(
   appDataDir: string,
   id: string,
-): { ok: true } | { ok: false; error: string } {
+  moveToTrash: (filePath: string) => Promise<void>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const clips = readStore(appDataDir);
   const index = clips.findIndex((c) => c.id === id);
   if (index < 0) return { ok: false, error: "Clip nicht gefunden." };
@@ -102,12 +103,12 @@ export function deleteClip(
   if (clip.filePath && fs.existsSync(clip.filePath)) {
     ignorePathTemporarily(clip.filePath);
     try {
-      fs.unlinkSync(clip.filePath);
+      await moveToTrash(clip.filePath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
         ok: false,
-        error: `Datei konnte nicht gelöscht werden: ${message}`,
+        error: `Datei konnte nicht in den Papierkorb verschoben werden: ${message}`,
       };
     }
   }
@@ -165,7 +166,7 @@ export async function cutClipToNewFile(
   }
   const dest = uniquePath(dir, stem, ext);
 
-  ignorePathTemporarily(dest, scale ? 15 * 60_000 : 15_000);
+  ignorePathTemporarily(dest, 15 * 60_000);
   try {
     const { durationSeconds } = await cutVideoToFile(clip.filePath, dest, ranges, {
       scale,
@@ -211,10 +212,9 @@ export async function cutClipOverwrite(
     `easyclip-overwrite-${crypto.randomUUID()}${ext}`,
   );
 
-  const ignoreMs = scale ? 15 * 60_000 : 60_000;
-  ignorePathTemporarily(clip.filePath, ignoreMs);
+  ignorePathTemporarily(clip.filePath, 15 * 60_000);
   try {
-    const { durationSeconds, width, height } = await cutVideoToFile(
+    const { durationSeconds, width, height, fps } = await cutVideoToFile(
       clip.filePath,
       tempDest,
       ranges,
@@ -239,6 +239,7 @@ export async function cutClipOverwrite(
       durationSeconds,
       width: width ?? clips[index]!.width,
       height: height ?? clips[index]!.height,
+      fps: fps ?? clips[index]!.fps,
       thumbnailPath,
       missing: false,
     };

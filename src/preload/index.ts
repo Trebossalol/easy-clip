@@ -8,7 +8,9 @@ import {
   type CutRange,
   type ScaleTarget,
   type ElectronApi,
+  type ExportGifResult,
   type HotkeyClipPayload,
+  type ClipConfirmPayload,
   type ObsScenesResult,
   type ObsStatus,
   type RenameClipResult,
@@ -78,6 +80,8 @@ const api: ElectronApi = {
     name?: string | null,
   ): Promise<CutClipResult> =>
     ipcRenderer.invoke(IpcChannels.cutClip, id, ranges, overwrite, scale, name),
+  exportGif: (id: string, ranges: CutRange[]): Promise<ExportGifResult> =>
+    ipcRenderer.invoke(IpcChannels.exportGif, id, ranges),
   getClip: (id: string) => ipcRenderer.invoke(IpcChannels.getClip, id),
   openCutter: (id?: string) => ipcRenderer.invoke(IpcChannels.openCutter, id),
   onCutterOpenClip: (callback: (id: string) => void) => {
@@ -128,9 +132,21 @@ const api: ElectronApi = {
       ipcRenderer.removeListener(IpcChannels.quickActionOpened, listener);
     };
   },
+  onClipConfirm: (callback: (payload: ClipConfirmPayload) => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      payload: ClipConfirmPayload,
+    ): void => {
+      callback(payload);
+    };
+    ipcRenderer.on(IpcChannels.clipConfirm, listener);
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.clipConfirm, listener);
+    };
+  },
   closeQuickAction: () => ipcRenderer.invoke(IpcChannels.closeQuickAction),
-  selectQuickAction: (seconds: number, title?: string) =>
-    ipcRenderer.invoke(IpcChannels.selectQuickAction, seconds, title),
+  selectQuickAction: (seconds: number, title?: string, tagIds?: string[]) =>
+    ipcRenderer.invoke(IpcChannels.selectQuickAction, seconds, title, tagIds),
   openExternal: (url: string) =>
     ipcRenderer.invoke(IpcChannels.openExternal, url),
   isPackaged: () => ipcRenderer.invoke(IpcChannels.isPackaged),

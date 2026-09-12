@@ -27,6 +27,9 @@ export const MAX_OBS_REPLAY_SECONDS = 7200;
 
 export const MIN_CUT_RANGE_SECONDS = 0.2;
 
+/** x264 CRF when the cutter re-encodes (accurate cuts and downscales). */
+export const DOWNSCALE_CRF = 18;
+
 export const DEFAULT_USER_CONFIG = {
   OBS_URL: "ws://localhost:4455",
   OBS_PASSWORD: "CHANGE_ME",

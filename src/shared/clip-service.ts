@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { OBSWebSocket } from "obs-websocket-js";
-import { MIN_CUT_RANGE_SECONDS } from "./app.config.js";
+import { DOWNSCALE_CRF, MIN_CUT_RANGE_SECONDS } from "./app.config.js";
 import type { CutRange, ScaleTarget } from "./ipc.js";
 import type { RunLog } from "./log.js";
 import { ensureDir, getFfmpegPath, getFfprobePath, yearMonthDir } from "./paths.js";
@@ -66,14 +66,47 @@ export interface VideoInfo {
   durationSeconds: number | null;
   width: number | null;
   height: number | null;
+  fps: number | null;
 }
+
+type ProbeStream = {
+  width?: unknown;
+  height?: unknown;
+  r_frame_rate?: unknown;
+  avg_frame_rate?: unknown;
+};
 
 function positiveInt(value: unknown): number | null {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+/** `60/1`, `30000/1001`, or a plain number. */
+function parseFrameRate(value: unknown): number | null {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (!raw || raw === "0/0") return null;
+  const slash = raw.indexOf("/");
+  let fps: number;
+  if (slash >= 0) {
+    const num = Number(raw.slice(0, slash));
+    const den = Number(raw.slice(slash + 1));
+    if (!(num > 0) || !(den > 0)) return null;
+    fps = num / den;
+  } else {
+    fps = Number(raw);
+  }
+  if (!Number.isFinite(fps) || fps < 1 || fps > 240) return null;
+  return fps;
+}
+
+function streamFps(stream: ProbeStream | undefined): number | null {
+  if (!stream) return null;
+  return parseFrameRate(stream.avg_frame_rate) ?? parseFrameRate(stream.r_frame_rate);
+}
+
 export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
+  const streamEntries = "stream=width,height,r_frame_rate,avg_frame_rate";
   const { stdout } = await execFileAsync(
     getFfprobePath(),
     [
@@ -82,7 +115,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
       "-select_streams",
       "v:0",
       "-show_entries",
-      "stream=width,height:format=duration",
+      `${streamEntries}:format=duration`,
       "-of",
       "json",
       filePath,
@@ -90,7 +123,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
     FFMPEG_OPTS,
   );
   const parsed = JSON.parse(stdout) as {
-    streams?: Array<{ width?: unknown; height?: unknown }>;
+    streams?: ProbeStream[];
     format?: { duration?: unknown };
   };
   let stream = parsed.streams?.find(
@@ -105,7 +138,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
         "-select_streams",
         "v:0",
         "-show_entries",
-        "stream=width,height",
+        streamEntries,
         "-of",
         "json",
         filePath,
@@ -113,7 +146,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
       FFMPEG_OPTS,
     );
     const retryParsed = JSON.parse(retry.stdout) as {
-      streams?: Array<{ width?: unknown; height?: unknown }>;
+      streams?: ProbeStream[];
     };
     stream = retryParsed.streams?.[0];
   }
@@ -123,6 +156,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
       Number.isFinite(duration) && duration > 0 ? duration : null,
     width: positiveInt(stream?.width),
     height: positiveInt(stream?.height),
+    fps: streamFps(stream),
   };
 }
 
@@ -206,12 +240,51 @@ async function runFfmpeg(args: string[], log?: RunLog): Promise<void> {
   }
 }
 
+function scaleFilter(scale: ScaleTarget): string {
+  return (
+    `scale=${scale.width}:${scale.height}:flags=lanczos:force_original_aspect_ratio=decrease:force_divisible_by=2,` +
+    `pad=${scale.width}:${scale.height}:(ow-iw)/2:(oh-ih)/2`
+  );
+}
+
+function encodeArgs(dst: string, scale?: ScaleTarget | null): string[] {
+  const args = ["-map", "0:v:0", "-map", "0:a?"];
+  if (scale) {
+    args.push("-vf", scaleFilter(scale));
+  }
+  args.push(
+    "-c:v",
+    "libx264",
+    "-crf",
+    String(DOWNSCALE_CRF),
+    "-preset",
+    "medium",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+  );
+  const ext = path.extname(dst).toLowerCase();
+  if (ext === ".mp4" || ext === ".m4v" || ext === ".mov") {
+    args.push("-movflags", "+faststart");
+  }
+  return args;
+}
+
+/**
+ * Frame-accurate extract. Stream-copy can only cut on video keyframes
+ * (OBS often uses a 2s GOP) and audio packet boundaries, so a 10s
+ * selection would export as ~12–14s.
+ */
 async function extractRange(
   src: string,
   dst: string,
   start: number,
   duration: number,
   log?: RunLog,
+  scale?: ScaleTarget | null,
 ): Promise<void> {
   await runFfmpeg(
     [
@@ -222,8 +295,7 @@ async function extractRange(
       src,
       "-t",
       String(duration),
-      "-c",
-      "copy",
+      ...encodeArgs(dst, scale),
       "-avoid_negative_ts",
       "make_zero",
       dst,
@@ -296,50 +368,17 @@ function resolveDownscale(
   return scale;
 }
 
-async function scaleVideoToFile(
-  src: string,
-  dst: string,
-  scale: ScaleTarget,
-  log?: RunLog,
-): Promise<void> {
-  const vf =
-    `scale=${scale.width}:${scale.height}:flags=lanczos:force_original_aspect_ratio=decrease:force_divisible_by=2,` +
-    `pad=${scale.width}:${scale.height}:(ow-iw)/2:(oh-ih)/2`;
-  const ext = path.extname(dst).toLowerCase();
-  const args = [
-    "-y",
-    "-i",
-    src,
-    "-map",
-    "0:v:0",
-    "-map",
-    "0:a?",
-    "-vf",
-    vf,
-    "-c:v",
-    "libx264",
-    "-crf",
-    "18",
-    "-preset",
-    "medium",
-    "-pix_fmt",
-    "yuv420p",
-    "-c:a",
-    "copy",
-  ];
-  if (ext === ".mp4" || ext === ".m4v" || ext === ".mov") {
-    args.push("-movflags", "+faststart");
-  }
-  args.push(dst);
-  await runFfmpeg(args, log);
-}
-
 export async function cutVideoToFile(
   src: string,
   dst: string,
   ranges: CutRange[],
   options?: { log?: RunLog; scale?: ScaleTarget | null },
-): Promise<{ durationSeconds: number; width: number | null; height: number | null }> {
+): Promise<{
+  durationSeconds: number;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+}> {
   if (!fs.existsSync(src)) {
     throw new Error("Die Clip-Datei fehlt.");
   }
@@ -359,57 +398,45 @@ export async function cutVideoToFile(
   ensureDir(path.dirname(dst));
 
   const ext = path.extname(src) || ".mp4";
-  const cutDest = scaleTo
-    ? path.join(os.tmpdir(), `easyclip-cut-${crypto.randomUUID()}${ext}`)
-    : dst;
-
-  try {
-    if (normalized.length === 1) {
-      const range = normalized[0]!;
-      await extractRange(src, cutDest, range.start, range.end - range.start, log);
-    } else {
-      const tmp = path.join(os.tmpdir(), `easyclip-cut-${crypto.randomUUID()}`);
-      ensureDir(tmp);
-      try {
-        const parts: string[] = [];
-        for (let i = 0; i < normalized.length; i++) {
-          const range = normalized[i]!;
-          const part = path.join(tmp, `seg-${i}${ext}`);
-          await extractRange(src, part, range.start, range.end - range.start, log);
-          parts.push(part);
-        }
-        await concatSegments(parts, cutDest, log);
-      } finally {
-        fs.rmSync(tmp, { recursive: true, force: true });
+  if (normalized.length === 1) {
+    const range = normalized[0]!;
+    await extractRange(src, dst, range.start, range.end - range.start, log, scaleTo);
+  } else {
+    const tmp = path.join(os.tmpdir(), `easyclip-cut-${crypto.randomUUID()}`);
+    ensureDir(tmp);
+    try {
+      const parts: string[] = [];
+      for (let i = 0; i < normalized.length; i++) {
+        const range = normalized[i]!;
+        const part = path.join(tmp, `seg-${i}${ext}`);
+        await extractRange(src, part, range.start, range.end - range.start, log, scaleTo);
+        parts.push(part);
       }
-    }
-
-    if (scaleTo) {
-      await scaleVideoToFile(cutDest, dst, scaleTo, log);
-    }
-  } finally {
-    if (scaleTo && cutDest !== dst) {
-      try {
-        if (fs.existsSync(cutDest)) fs.unlinkSync(cutDest);
-      } catch {
-        // Temp cleanup is best-effort.
-      }
+      await concatSegments(parts, dst, log);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   }
 
   let durationSeconds: number;
   let width: number | null = null;
   let height: number | null = null;
+  let fps: number | null = null;
   try {
     const out = await getVideoInfo(dst);
     width = out.width;
     height = out.height;
+    fps = out.fps;
     durationSeconds = out.durationSeconds ?? (await getVideoDuration(dst));
   } catch {
     durationSeconds = await getVideoDuration(dst);
   }
+  const expectedSeconds = normalized.reduce(
+    (sum, range) => sum + (range.end - range.start),
+    0,
+  );
   log?.info(`Output file: ${dst} (${fileSize(dst)} bytes)`);
-  log?.info(`Output duration: ${durationSeconds}s`);
+  log?.info(`Output duration: ${durationSeconds}s (expected ${expectedSeconds.toFixed(3)}s)`);
   if (width && height) {
     log?.info(`Output size: ${width}x${height}`);
   }
@@ -423,7 +450,95 @@ export async function cutVideoToFile(
       `Die Ausgabeauflösung ist ${width}×${height}, erwartet ${scaleTo.width}×${scaleTo.height}.`,
     );
   }
-  return { durationSeconds, width, height };
+  return { durationSeconds, width, height, fps };
+}
+
+const MAX_GIF_KEEP_SECONDS = 12;
+const GIF_MAX_WIDTH = 480;
+const GIF_FPS = 12;
+
+export async function exportGifToFile(
+  src: string,
+  dst: string,
+  ranges: CutRange[],
+  options?: { log?: RunLog },
+): Promise<{ durationSeconds: number }> {
+  if (!fs.existsSync(src)) {
+    throw new Error("Die Clip-Datei fehlt.");
+  }
+
+  const log = options?.log;
+  const total = await getVideoDuration(src);
+  const normalized = normalizeCutRanges(ranges, total);
+  const keepSeconds = normalized.reduce(
+    (sum, range) => sum + (range.end - range.start),
+    0,
+  );
+  if (keepSeconds > MAX_GIF_KEEP_SECONDS + 0.05) {
+    throw new Error(
+      `GIF-Export ist auf höchstens ${MAX_GIF_KEEP_SECONDS}s begrenzt. Kürze die Behalten-Bereiche.`,
+    );
+  }
+
+  ensureDir(path.dirname(dst));
+  const work = path.join(os.tmpdir(), `easyclip-gif-${crypto.randomUUID()}`);
+  ensureDir(work);
+  const ext = path.extname(src) || ".mp4";
+  const cutPath = path.join(work, `cut${ext}`);
+  const palettePath = path.join(work, "palette.png");
+
+  try {
+    if (normalized.length === 1) {
+      const range = normalized[0]!;
+      await extractRange(src, cutPath, range.start, range.end - range.start, log);
+    } else {
+      const parts: string[] = [];
+      for (let i = 0; i < normalized.length; i++) {
+        const range = normalized[i]!;
+        const part = path.join(work, `seg-${i}${ext}`);
+        await extractRange(src, part, range.start, range.end - range.start, log);
+        parts.push(part);
+      }
+      await concatSegments(parts, cutPath, log);
+    }
+
+    const scaleFilter =
+      `fps=${GIF_FPS},scale=${GIF_MAX_WIDTH}:-1:flags=lanczos:force_original_aspect_ratio=decrease:force_divisible_by=2`;
+    await runFfmpeg(
+      ["-y", "-i", cutPath, "-vf", `${scaleFilter},palettegen=stats_mode=diff`, palettePath],
+      log,
+    );
+    await runFfmpeg(
+      [
+        "-y",
+        "-i",
+        cutPath,
+        "-i",
+        palettePath,
+        "-lavfi",
+        `${scaleFilter}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5`,
+        "-loop",
+        "0",
+        dst,
+      ],
+      log,
+    );
+
+    let durationSeconds: number;
+    try {
+      durationSeconds = (await getVideoInfo(dst)).durationSeconds ?? keepSeconds;
+    } catch {
+      durationSeconds = keepSeconds;
+    }
+    log?.info(`GIF output: ${dst} (${fileSize(dst)} bytes)`);
+    return { durationSeconds };
+  } finally {
+    try {
+      fs.rmSync(work, { recursive: true, force: true });
+    } catch {
+      // Temp cleanup is best-effort.
+    }
+  }
 }
 
 export interface SaveAndTrimOptions {

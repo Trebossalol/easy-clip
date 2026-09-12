@@ -77,6 +77,10 @@ export interface ObsStatus {
   replayMaxSeconds: number | null;
   /** Current OBS program scene; `null` when disconnected or unknown. */
   currentScene: string | null;
+  /** OBS recording / replay output folder; `null` when unknown. */
+  recordDirectory: string | null;
+  /** True when OBS record dir and Easy Clip CLIP_OUTPUT_DIR differ. */
+  outputDirMismatch: boolean;
 }
 
 export interface ClipRecord {
@@ -89,6 +93,8 @@ export interface ClipRecord {
   width?: number | null;
   /** Coded frame height; `null` when unknown. */
   height?: number | null;
+  /** Frames per second; `null` when unknown. */
+  fps?: number | null;
   /** File size in bytes; `null` when the file is missing. */
   fileSizeBytes?: number | null;
   thumbnailPath: string | null;
@@ -139,6 +145,7 @@ export const IpcChannels = {
   renameClip: "clips:rename",
   deleteClip: "clips:delete",
   cutClip: "clips:cut",
+  exportGif: "clips:export-gif",
   getClip: "clips:get",
   openCutter: "clips:open-cutter",
   cutterOpenClip: "cutter:open-clip",
@@ -158,6 +165,7 @@ export const IpcChannels = {
   quickActionOpened: "quick-action:opened",
   closeQuickAction: "quick-action:close",
   selectQuickAction: "quick-action:select",
+  clipConfirm: "clip:confirm",
   openExternal: "shell:open-external",
   isPackaged: "app:is-packaged",
   getVersion: "app:get-version",
@@ -185,6 +193,10 @@ export type CutClipResult =
   | { ok: true; clip: ClipRecord }
   | { ok: false; error: string };
 
+export type ExportGifResult =
+  | { ok: true; outputPath: string }
+  | { ok: false; error: string };
+
 export type StorageInfoResult =
   | { ok: true; info: StorageInfo }
   | { ok: false; error: string };
@@ -197,6 +209,14 @@ export interface HotkeyClipPayload {
   seconds: number;
   result: CreateClipResult;
   title?: string;
+  tagIds?: string[];
+}
+
+export interface ClipConfirmPayload {
+  ok: boolean;
+  seconds: number;
+  title?: string;
+  error?: string;
 }
 
 export interface AppUpdateInfo {
@@ -234,6 +254,7 @@ export interface ElectronApi {
     scale?: ScaleTarget | null,
     name?: string | null,
   ): Promise<CutClipResult>;
+  exportGif(id: string, ranges: CutRange[]): Promise<ExportGifResult>;
   getClip(id: string): Promise<ClipRecord | null>;
   openCutter(id?: string): Promise<{ ok: boolean; error?: string }>;
   onCutterOpenClip(callback: (id: string) => void): () => void;
@@ -245,8 +266,9 @@ export interface ElectronApi {
   onHotkeysFailed(callback: (accelerators: string[]) => void): () => void;
   onHotkeyClip(callback: (payload: HotkeyClipPayload) => void): () => void;
   onQuickActionOpened(callback: () => void): () => void;
+  onClipConfirm(callback: (payload: ClipConfirmPayload) => void): () => void;
   closeQuickAction(): Promise<void>;
-  selectQuickAction(seconds: number, title?: string): Promise<void>;
+  selectQuickAction(seconds: number, title?: string, tagIds?: string[]): Promise<void>;
   openExternal(url: string): Promise<{ ok: boolean; error?: string }>;
   isPackaged(): Promise<boolean>;
   getVersion(): Promise<string>;

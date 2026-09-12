@@ -83,7 +83,7 @@ export function AppHeader({
                   type="button"
                   size="sm"
                   variant={active ? "default" : "outline"}
-                  className={cn(active && "shimmer")}
+                  className={cn(busy && active && "shimmer")}
                   disabled={!canClip || overBuffer}
                   title={
                     overBuffer && replayMax != null

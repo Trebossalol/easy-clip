@@ -135,13 +135,28 @@ export function MainAppWindow() {
     return saved;
   }
 
+  async function adoptObsOutputDir(): Promise<void> {
+    const dir = obsStatus?.recordDirectory?.trim();
+    if (!dir || !config) {
+      toast.error("OBS-Aufnahmepfad ist unbekannt.");
+      return;
+    }
+    try {
+      await saveConfig({ ...config, CLIP_OUTPUT_DIR: dir });
+      toast.success("Clip-Ausgabeordner an OBS angepasst.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(message);
+    }
+  }
+
   async function createClip(seconds: number): Promise<void> {
     setClippingBusy(true);
+    setLastSeconds(seconds);
     setClipMessage(null);
     try {
       const result = await loader.wrap(() => window.api.createClip(seconds));
       if (result.ok) {
-        setLastSeconds(seconds);
         selectNewestRef.current = true;
         setClipMessage({
           text: `Die letzten ${formatDuration(seconds)} wurden gespeichert. Benenne den Clip unten um, um die Datei anzupassen.`,
@@ -312,6 +327,7 @@ export function MainAppWindow() {
                     obsStatus={obsStatus}
                     clipScene={config.OBS_SCENE}
                     message={clipMessage}
+                    onAdoptObsOutputDir={adoptObsOutputDir}
                   />
                   <RecentClips
                     clips={clips}
@@ -334,6 +350,7 @@ export function MainAppWindow() {
                   section={view}
                   config={config}
                   replayMaxSeconds={obsStatus?.replayMaxSeconds ?? null}
+                  obsStatus={obsStatus}
                   onSave={saveConfig}
                   onGoToObsSettings={() => setView("obs")}
                   tags={tags}

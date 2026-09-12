@@ -59,6 +59,7 @@ import {
   createMainWindow,
   getMainWindow,
   showMainWindow,
+  closeConfirmWindow,
 } from "./windows/index.js";
 
 registerPrivilegedSchemes();
@@ -159,6 +160,7 @@ app.on("before-quit", () => {
   beginIntentionalDisconnect();
   unregisterAppHotkeys();
   closeQuickActionWindow();
+  closeConfirmWindow();
   stopObsProcessPoll();
   destroyTray();
   void stopFolderWatcher();

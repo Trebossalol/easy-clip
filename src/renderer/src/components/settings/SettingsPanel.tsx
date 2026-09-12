@@ -13,7 +13,13 @@ import {
   MAX_OBS_REPLAY_SECONDS,
   MIN_OBS_REPLAY_SECONDS,
 } from "@shared/app.config";
-import type { AppConfigDto, ClipPreset, ClipRecord, TagRecord } from "@shared/ipc";
+import type {
+  AppConfigDto,
+  ClipPreset,
+  ClipRecord,
+  ObsStatus,
+  TagRecord,
+} from "@shared/ipc";
 import { normalizeHotkey } from "@shared/hotkeys";
 import { formatDuration } from "@/format";
 import { SaveIcon } from "lucide-react";
@@ -81,6 +87,7 @@ interface SettingsPanelProps {
   section: SettingsSection;
   config: AppConfigDto;
   replayMaxSeconds: number | null;
+  obsStatus: ObsStatus | null;
   onSave: (config: AppConfigDto) => Promise<AppConfigDto>;
   onGoToObsSettings: () => void;
   tags: TagRecord[];
@@ -91,6 +98,7 @@ export function SettingsPanel({
   section,
   config,
   replayMaxSeconds,
+  obsStatus,
   onSave,
   onGoToObsSettings,
   tags,
@@ -190,6 +198,23 @@ export function SettingsPanel({
     const dir = await window.api.pickOutputDir();
     if (dir) setOutputDir(dir);
   }, []);
+
+  const adoptObsOutputDir = useCallback(async (): Promise<void> => {
+    const dir = obsStatus?.recordDirectory?.trim();
+    if (!dir) {
+      toast.error("OBS-Aufnahmepfad ist unbekannt.");
+      return;
+    }
+    setOutputDir(dir);
+    try {
+      const saved = await onSave({ ...config, CLIP_OUTPUT_DIR: dir });
+      setOutputDir(saved.CLIP_OUTPUT_DIR);
+      toast.success("Clip-Ausgabeordner an OBS angepasst.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(message);
+    }
+  }, [config, obsStatus?.recordDirectory, onSave]);
 
   const handleBrowseObsExe = useCallback(async (): Promise<void> => {
     const exe = await window.api.pickObsExe();
@@ -376,6 +401,9 @@ export function SettingsPanel({
       outputDir,
       onOutputDirChange: setOutputDir,
       onBrowseOutputDir: () => void handleBrowse(),
+      obsRecordDirectory: obsStatus?.recordDirectory ?? null,
+      outputDirMismatch: obsStatus?.outputDirMismatch === true,
+      onAdoptObsOutputDir: () => adoptObsOutputDir(),
 
       clipPresets,
       maxSeconds,
@@ -411,6 +439,9 @@ export function SettingsPanel({
       togglePassword,
       outputDir,
       handleBrowse,
+      adoptObsOutputDir,
+      obsStatus?.recordDirectory,
+      obsStatus?.outputDirMismatch,
       clipPresets,
       maxSeconds,
       quickActionHotkey,

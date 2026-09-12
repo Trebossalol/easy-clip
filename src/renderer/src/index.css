@@ -254,7 +254,10 @@
   }
   html.quick-action,
   html.quick-action body,
-  html.quick-action #root {
+  html.quick-action #root,
+  html.clip-confirm,
+  html.clip-confirm body,
+  html.clip-confirm #root {
     background: transparent;
   }
 
