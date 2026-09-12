@@ -74,11 +74,13 @@ export async function importClipFromFile(
     let durationSeconds = opts?.durationSeconds ?? null;
     let width: number | null = null;
     let height: number | null = null;
+    let fps: number | null = null;
     try {
       const info = await getVideoInfo(named.filePath);
       durationSeconds = durationSeconds ?? info.durationSeconds;
       width = info.width;
       height = info.height;
+      fps = info.fps;
     } catch {
       // Duration / size stay whatever we already have.
     }
@@ -98,6 +100,7 @@ export async function importClipFromFile(
       durationSeconds,
       width,
       height,
+      fps,
       thumbnailPath,
       missing: false,
       namedByUser: opts?.namedByUser ?? named.namedByUser,
@@ -154,12 +157,16 @@ export async function scanAndImportExisting(
       clip.missing = false;
       changed = true;
     }
-    if (clip.width == null || clip.height == null) {
+    if (clip.width == null || clip.height == null || clip.fps == null) {
       try {
         const info = await getVideoInfo(clip.filePath);
         if (info.width != null && info.height != null) {
           clip.width = info.width;
           clip.height = info.height;
+          changed = true;
+        }
+        if (info.fps != null) {
+          clip.fps = info.fps;
           changed = true;
         }
         if (clip.durationSeconds == null && info.durationSeconds != null) {

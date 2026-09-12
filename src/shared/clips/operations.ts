@@ -215,7 +215,7 @@ export async function cutClipOverwrite(
   const ignoreMs = scale ? 15 * 60_000 : 60_000;
   ignorePathTemporarily(clip.filePath, ignoreMs);
   try {
-    const { durationSeconds, width, height } = await cutVideoToFile(
+    const { durationSeconds, width, height, fps } = await cutVideoToFile(
       clip.filePath,
       tempDest,
       ranges,
@@ -240,6 +240,7 @@ export async function cutClipOverwrite(
       durationSeconds,
       width: width ?? clips[index]!.width,
       height: height ?? clips[index]!.height,
+      fps: fps ?? clips[index]!.fps,
       thumbnailPath,
       missing: false,
     };

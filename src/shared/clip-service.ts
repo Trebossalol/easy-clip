@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { OBSWebSocket } from "obs-websocket-js";
-import { MIN_CUT_RANGE_SECONDS } from "./app.config.js";
+import { DOWNSCALE_CRF, MIN_CUT_RANGE_SECONDS } from "./app.config.js";
 import type { CutRange, ScaleTarget } from "./ipc.js";
 import type { RunLog } from "./log.js";
 import { ensureDir, getFfmpegPath, getFfprobePath, yearMonthDir } from "./paths.js";
@@ -66,14 +66,47 @@ export interface VideoInfo {
   durationSeconds: number | null;
   width: number | null;
   height: number | null;
+  fps: number | null;
 }
+
+type ProbeStream = {
+  width?: unknown;
+  height?: unknown;
+  r_frame_rate?: unknown;
+  avg_frame_rate?: unknown;
+};
 
 function positiveInt(value: unknown): number | null {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+/** `60/1`, `30000/1001`, or a plain number. */
+function parseFrameRate(value: unknown): number | null {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (!raw || raw === "0/0") return null;
+  const slash = raw.indexOf("/");
+  let fps: number;
+  if (slash >= 0) {
+    const num = Number(raw.slice(0, slash));
+    const den = Number(raw.slice(slash + 1));
+    if (!(num > 0) || !(den > 0)) return null;
+    fps = num / den;
+  } else {
+    fps = Number(raw);
+  }
+  if (!Number.isFinite(fps) || fps < 1 || fps > 240) return null;
+  return fps;
+}
+
+function streamFps(stream: ProbeStream | undefined): number | null {
+  if (!stream) return null;
+  return parseFrameRate(stream.avg_frame_rate) ?? parseFrameRate(stream.r_frame_rate);
+}
+
 export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
+  const streamEntries = "stream=width,height,r_frame_rate,avg_frame_rate";
   const { stdout } = await execFileAsync(
     getFfprobePath(),
     [
@@ -82,7 +115,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
       "-select_streams",
       "v:0",
       "-show_entries",
-      "stream=width,height:format=duration",
+      `${streamEntries}:format=duration`,
       "-of",
       "json",
       filePath,
@@ -90,7 +123,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
     FFMPEG_OPTS,
   );
   const parsed = JSON.parse(stdout) as {
-    streams?: Array<{ width?: unknown; height?: unknown }>;
+    streams?: ProbeStream[];
     format?: { duration?: unknown };
   };
   let stream = parsed.streams?.find(
@@ -105,7 +138,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
         "-select_streams",
         "v:0",
         "-show_entries",
-        "stream=width,height",
+        streamEntries,
         "-of",
         "json",
         filePath,
@@ -113,7 +146,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
       FFMPEG_OPTS,
     );
     const retryParsed = JSON.parse(retry.stdout) as {
-      streams?: Array<{ width?: unknown; height?: unknown }>;
+      streams?: ProbeStream[];
     };
     stream = retryParsed.streams?.[0];
   }
@@ -123,6 +156,7 @@ export async function getVideoInfo(filePath: string): Promise<VideoInfo> {
       Number.isFinite(duration) && duration > 0 ? duration : null,
     width: positiveInt(stream?.width),
     height: positiveInt(stream?.height),
+    fps: streamFps(stream),
   };
 }
 
@@ -206,12 +240,48 @@ async function runFfmpeg(args: string[], log?: RunLog): Promise<void> {
   }
 }
 
+function scaleFilter(scale: ScaleTarget): string {
+  return (
+    `scale=${scale.width}:${scale.height}:flags=lanczos:force_original_aspect_ratio=decrease:force_divisible_by=2,` +
+    `pad=${scale.width}:${scale.height}:(ow-iw)/2:(oh-ih)/2`
+  );
+}
+
+function encodeArgs(dst: string, scale?: ScaleTarget | null): string[] {
+  const args = ["-map", "0:v:0", "-map", "0:a?"];
+  if (scale) {
+    args.push("-vf", scaleFilter(scale));
+  }
+  args.push(
+    "-c:v",
+    "libx264",
+    "-crf",
+    "18",
+    "-preset",
+    "medium",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "copy",
+  );
+  const ext = path.extname(dst).toLowerCase();
+  if (ext === ".mp4" || ext === ".m4v" || ext === ".mov") {
+    args.push("-movflags", "+faststart");
+  }
+  return args;
+}
+
+/**
+ * Frame-accurate extract. `-c copy` can only cut on keyframes (OBS often uses
+ * a 2s GOP), so a 10s selection would export as ~12–14s.
+ */
 async function extractRange(
   src: string,
   dst: string,
   start: number,
   duration: number,
   log?: RunLog,
+  scale?: ScaleTarget | null,
 ): Promise<void> {
   await runFfmpeg(
     [
@@ -222,10 +292,7 @@ async function extractRange(
       src,
       "-t",
       String(duration),
-      "-c",
-      "copy",
-      "-avoid_negative_ts",
-      "make_zero",
+      ...encodeArgs(dst, scale),
       dst,
     ],
     log,
@@ -319,7 +386,7 @@ async function scaleVideoToFile(
     "-c:v",
     "libx264",
     "-crf",
-    "18",
+    String(DOWNSCALE_CRF),
     "-preset",
     "medium",
     "-pix_fmt",
@@ -339,7 +406,12 @@ export async function cutVideoToFile(
   dst: string,
   ranges: CutRange[],
   options?: { log?: RunLog; scale?: ScaleTarget | null },
-): Promise<{ durationSeconds: number; width: number | null; height: number | null }> {
+): Promise<{
+  durationSeconds: number;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+}> {
   if (!fs.existsSync(src)) {
     throw new Error("Die Clip-Datei fehlt.");
   }
@@ -400,10 +472,12 @@ export async function cutVideoToFile(
   let durationSeconds: number;
   let width: number | null = null;
   let height: number | null = null;
+  let fps: number | null = null;
   try {
     const out = await getVideoInfo(dst);
     width = out.width;
     height = out.height;
+    fps = out.fps;
     durationSeconds = out.durationSeconds ?? (await getVideoDuration(dst));
   } catch {
     durationSeconds = await getVideoDuration(dst);
@@ -423,7 +497,7 @@ export async function cutVideoToFile(
       `Die Ausgabeauflösung ist ${width}×${height}, erwartet ${scaleTo.width}×${scaleTo.height}.`,
     );
   }
-  return { durationSeconds, width, height };
+  return { durationSeconds, width, height, fps };
 }
 
 const MAX_GIF_KEEP_SECONDS = 12;

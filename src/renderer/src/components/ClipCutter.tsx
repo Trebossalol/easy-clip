@@ -313,6 +313,7 @@ export function ClipCutter({
       sourceHeight: sourceSize.height,
       targetWidth,
       targetHeight,
+      fps: clip.fps,
     });
   }
   const originalBytes = estimateFor();

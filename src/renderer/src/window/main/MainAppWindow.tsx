@@ -152,11 +152,11 @@ export function MainAppWindow() {
 
   async function createClip(seconds: number): Promise<void> {
     setClippingBusy(true);
+    setLastSeconds(seconds);
     setClipMessage(null);
     try {
       const result = await loader.wrap(() => window.api.createClip(seconds));
       if (result.ok) {
-        setLastSeconds(seconds);
         selectNewestRef.current = true;
         setClipMessage({
           text: `Die letzten ${formatDuration(seconds)} wurden gespeichert. Benenne den Clip unten um, um die Datei anzupassen.`,

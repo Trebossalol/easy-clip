@@ -93,6 +93,8 @@ export interface ClipRecord {
   width?: number | null;
   /** Coded frame height; `null` when unknown. */
   height?: number | null;
+  /** Frames per second; `null` when unknown. */
+  fps?: number | null;
   /** File size in bytes; `null` when the file is missing. */
   fileSizeBytes?: number | null;
   thumbnailPath: string | null;
