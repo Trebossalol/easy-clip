@@ -125,7 +125,7 @@ export function AppSidebar({
         <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="space-y-1">
               <SidebarMenuItem>
                 <SidebarMenuButton
                   isActive={view === "library"}
@@ -157,7 +157,7 @@ export function AppSidebar({
         <SidebarGroup>
           <SidebarGroupLabel>Einstellungen</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="space-y-1">
               {SETTINGS_SECTIONS.map((item) => {
                 const Icon = item.icon;
                 return (
